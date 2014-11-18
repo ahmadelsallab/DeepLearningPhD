@@ -141,11 +141,68 @@ class DBN(object):
         out = self.log_layer.predict(layer_input)
         return out
 
+import os
+import gzip
+import pickle
+def load_data(dataset):
+    ''' Loads the dataset
+
+    :type dataset: string
+    :param dataset: the path to the dataset (here MNIST)
+    '''
+
+    #############
+    # LOAD DATA #
+    #############
+
+    # Download the MNIST dataset if it is not present
+    data_dir, data_file = os.path.split(dataset)
+    if data_dir == "" and not os.path.isfile(dataset):
+        # Check if dataset is in the data directory.
+        new_path = os.path.join(
+            os.path.split(__file__)[0],
+            "..",
+            "data",
+            dataset
+        )
+        if os.path.isfile(new_path) or data_file == 'mnist.pkl.gz':
+            dataset = new_path
+
+    if (not os.path.isfile(dataset)) and data_file == 'mnist.pkl.gz':
+        import urllib.request, urllib.parse, urllib.error
+        origin = (
+            'http://www.iro.umontreal.ca/~lisa/deep/data/mnist/mnist.pkl.gz'
+        )
+        print('Downloading data from %s' % origin)
+        urllib.request.urlretrieve(origin, dataset)
+
+    print('... loading data')
+
+    # Load the dataset
+    f = gzip.open(dataset, 'rb')
+    train_set, valid_set, test_set = pickle.load(f, encoding = 'latin1')
+    f.close()
+    #train_set, valid_set, test_set format: tuple(input, target)
+    #input is an numpy.ndarray of 2 dimensions (a matrix)
+    #witch row's correspond to an example. target is a
+    #numpy.ndarray of 1 dimensions (vector)) that have the same length as
+    #the number of rows in the input. It should give the target
+    #target to the example with the same index in the input.
 
 
-def test_dbn(pretrain_lr=0.1, pretraining_epochs=1000, k=1, \
-             finetune_lr=0.1, finetune_epochs=200):
 
+    test_set_x, test_set_y = test_set
+    valid_set_x, valid_set_y = valid_set
+    train_set_x, train_set_y = train_set
+
+    rval = [(train_set_x, train_set_y), (valid_set_x, valid_set_y),
+            (test_set_x, test_set_y)]
+    return rval
+
+def test_dbn_MNIST(pretrain_lr=0.1, pretraining_epochs=10, k=1, \
+             finetune_lr=0.1, finetune_epochs=10, dataset='mnist.pkl.gz', batch_size=10):
+
+    '''
     x = numpy.array([[1,1,1,0,0,0],
                      [1,0,1,0,0,0],
                      [1,1,1,0,0,0],
@@ -161,8 +218,89 @@ def test_dbn(pretrain_lr=0.1, pretraining_epochs=1000, k=1, \
 
     
     rng = numpy.random.RandomState(123)
+    '''
+    
+    datasets = load_data(dataset)
 
+    train_set_x, train_set_y_ = datasets[0]
+    valid_set_x, valid_set_y = datasets[1]
+    test_set_x, test_set_y_ = datasets[2]
+    
+    #train_set_y = numpy.zeros(50000 * 10).reshape(50000, 10)
+    train_set_y = []
+    for example in train_set_y_[0:99]:
+        y = numpy.zeros(10)
+        y[example] = 1
+        train_set_y.append(y)
+    train_set_y = numpy.asanyarray(train_set_y)
+    # compute number of minibatches for training, validation and testing
+    #n_train_batches = train_set_x.get_value(borrow=True).shape[0] / batch_size
+    
+    
+    rng = numpy.random.RandomState(123)
+    
+    
     # construct DBN
+    dbn = DBN(input=train_set_x[0:99], label=train_set_y, n_ins=28 * 28, hidden_layer_sizes=[1000, 1000, 1000], n_outs=10, numpy_rng=rng)
+    
+
+    # pre-training (TrainUnsupervisedDBN)
+    print('Pre-train the system...')
+    dbn.pretrain(lr=pretrain_lr, k=1, epochs=pretraining_epochs)
+    
+    # fine-tuning (DBNSupervisedFineTuning)
+    print('Fine tune the system...')
+    dbn.finetune(lr=finetune_lr, epochs=finetune_epochs)
+
+
+    # test
+    print('Test the system...')
+    print(dbn.predict(test_set_x))
+    print('Done')
+
+
+
+def test_dbn(pretrain_lr=0.1, pretraining_epochs=1000, k=1, \
+             finetune_lr=0.1, finetune_epochs=200, dataset='mnist.pkl.gz', batch_size=10):
+
+    
+    x = numpy.array([[1,1,1,0,0,0],
+                     [1,0,1,0,0,0],
+                     [1,1,1,0,0,0],
+                     [0,0,1,1,1,0],
+                     [0,0,1,1,0,0],
+                     [0,0,1,1,1,0]])
+    y = numpy.array([[1, 0],
+                     [1, 0],
+                     [1, 0],
+                     [0, 1],
+                     [0, 1],
+                     [0, 1]])
+
+    
+    rng = numpy.random.RandomState(123)
+    
+    '''
+    datasets = load_data(dataset)
+
+    train_set_x, train_set_y_ = datasets[0]
+    valid_set_x, valid_set_y = datasets[1]
+    test_set_x, test_set_y_ = datasets[2]
+    
+    train_set_y = []
+    for example in train_set_y_:
+        y = numpy.zeros(10)
+        y[example] = 1
+        train_set_y.append(y)
+    # compute number of minibatches for training, validation and testing
+    #n_train_batches = train_set_x.get_value(borrow=True).shape[0] / batch_size
+    
+    
+    rng = numpy.random.RandomState(123)
+    '''
+    
+    # construct DBN
+    #dbn = DBN(input=train_set_x, label=train_set_y, n_ins=28 * 28, hidden_layer_sizes=[1000, 1000, 1000], n_outs=10, numpy_rng=rng)
     dbn = DBN(input=x, label=y, n_ins=6, hidden_layer_sizes=[3, 3], n_outs=2, numpy_rng=rng)
 
     # pre-training (TrainUnsupervisedDBN)
@@ -173,13 +311,16 @@ def test_dbn(pretrain_lr=0.1, pretraining_epochs=1000, k=1, \
 
 
     # test
+    
     x = numpy.array([[1, 1, 0, 0, 0, 0],
                      [0, 0, 0, 1, 1, 0],
                      [1, 1, 1, 1, 1, 0]])
     
+    
+    #print(dbn.predict(test_set_x))
     print(dbn.predict(x))
 
 
 
 if __name__ == "__main__":
-    test_dbn()
+    test_dbn_MNIST()
